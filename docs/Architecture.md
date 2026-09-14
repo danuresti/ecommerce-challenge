@@ -88,6 +88,7 @@ classDiagram
     class ProductRepository {
         +create(product) Product
         +get(id) Product
+        +get_by_sku(sku) Product
         +list() List~Product~
         +update(id, data) Product
         +delete(id) bool
@@ -97,12 +98,17 @@ classDiagram
         +create_product(data) Product
         +update_product(id, data) Product
         +delete_product(id) bool
+        +get_product(id) Product
+        +list_products() List~Product~
         +search(query) List~Product~
     }
 
     class CsvImportService {
         +import_from_csv(file_path) ImportResult
-        -validate_row(row) bool
+        -_row_to_dict(row) dict
+        -_clean_text(value) str
+        -_clean_price(value) float
+        -_is_blank_row(row) bool
     }
 
     class PurchaseService {
@@ -110,8 +116,21 @@ classDiagram
         -check_stock(product_id, quantity) bool
     }
 
+    class AppError {
+        <<exception>>
+    }
+    class NotFoundError
+    class ValidationError
+    class DuplicateError
+    class InsufficientStockError
+
+    AppError <|-- NotFoundError
+    AppError <|-- ValidationError
+    AppError <|-- DuplicateError
+    AppError <|-- InsufficientStockError
+
     ProductService --> ProductRepository : uses
-    CsvImportService --> ProductRepository : uses
+    CsvImportService --> ProductService : uses
     PurchaseService --> ProductRepository : uses
     ProductRepository --> Product : manages
 ```
@@ -128,6 +147,9 @@ Pure data access — create, read, update, delete against the database, with no 
 ### Model / DB Layer (`app/models/`, `app/db/`)
 SQLAlchemy models (the schema definition) and the database session/engine setup.
 
+### Exceptions (`app/exceptions.py`)
+A shared exception hierarchy (`AppError` as base, with `NotFoundError`, `ValidationError`, `DuplicateError`, `InsufficientStockError` as specific subtypes) used across all services. This lets the UI catch errors either generically (`except AppError`) or specifically (`except DuplicateError`) without relying on parsing error message text.
+
 ## Key Design Decisions
 
 ### 1. SQLite + SQLAlchemy (instead of PostgreSQL)
@@ -140,7 +162,7 @@ A frontend/backend split (e.g., FastAPI + React) is the more decoupled, "correct
 Floating point numbers introduce rounding errors that are unacceptable for currency values. `Numeric` stores exact decimal values.
 
 ### 4. `sku` as a unique constraint
-Assumed to be the real-world identifier for a product in a catalog, so it's enforced as unique at the database level.
+Assumed to be the real-world identifier for a product in a catalog, so it's enforced as unique at the database level. A surrogate `id` (auto-incrementing integer primary key) is kept separate from `sku` (a natural key) — this protects internal relationships (e.g., a future `Order` referencing a product) from breaking if a SKU format ever changes, which is common in real catalog systems.
 
 ### 5. Purchase flow as a simple conditional check (not a state machine)
 A state machine was considered for the purchase flow, since the domain has a natural parallel to state-driven design (familiar from automotive/embedded systems). However, the current purchase flow is a single-transaction, binary outcome (sufficient stock vs. insufficient stock) — not an entity that persists across multiple states over time. A state machine would be a better fit for an `Order` entity with a real lifecycle (e.g., `Created → PaymentPending → PaymentConfirmed → Failed`), but since the challenge explicitly fakes the payment step, that complexity was considered out of scope for this timebox.
@@ -154,6 +176,12 @@ This aligns with an agile mindset: this architecture is "good enough" for the cu
 
 **A concrete risk worth flagging for multi-client scenarios: concurrency.** If multiple clients attempt to purchase the same product simultaneously, stock validation and the stock update must be atomic (a transaction that locks the row during check-and-update), or the system is exposed to race conditions — two purchases could both pass the "stock available" check before either decrements it, overselling the product. SQLite handles concurrent writes from multiple processes poorly, which reinforces Design Decision #1: PostgreSQL would become a hard requirement (not just a nice-to-have) once true multi-client concurrency is in scope, since it supports row-level locking for atomic transactions.
 
+### 7. `CsvImportService` depends on `ProductService`, not `ProductRepository` directly
+The initial design had `CsvImportService` calling `ProductRepository` directly. While implementing, this initial design decision changed: the CSV import needs the exact same business validation as any other product creation path. Calling the Repository directly would have required duplicating that validation logic, risking the CSV import path allowing invalid data that no other entry point would permit. This means every product passes through the same validation rules exactly once.
+
+### 8. Price of exactly `$0.00` is treated as valid
+An early validation bug rejected products with `price = 0.00` as "missing required field," because Python treats `0.0` as a falsy value. This was corrected: a `None` or empty price is invalid, but an explicit `0.00` is treated as a legitimate value (e.g., promotional or free items, such as a "Mystery Box" product found in the test dataset). See `Bugs.md` for the full root-cause writeup.
+
 ## What Would Change for a Production Deployment
 
 Given the time constraint, the priority was to have a working "first version." If a more production-ready, robust version is needed later, the following changes would apply:
@@ -164,3 +192,6 @@ Given the time constraint, the priority was to have a working "first version." I
 - **Payment:** Faked — would integrate a real payment provider behind the `purchase_service` interface, without changing its calling contract
 - **Order lifecycle:** if order tracking becomes a requirement, model it as a state machine (see Design Decision #5)
 - **Multiple clients:** add an API layer (e.g., FastAPI) exposing the existing Service Layer over the network, without rewriting business logic (see Design Decision #6); combined with the PostgreSQL migration, this would also require row-level locking on stock updates to prevent overselling under concurrent purchases
+
+## Note on Code Comments
+Per the challenge instructions ("if you use AI, please remove comments from the code"), the source code intentionally contains no inline comments. Any "why" behind a non-obvious implementation choice is documented here instead, or in `Bugs.md`, rather than as code comments.
