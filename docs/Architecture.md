@@ -29,7 +29,7 @@ flowchart LR
 ```mermaid
 flowchart TB
     UI["UI Layer<br/><i>app/ui/streamlit_app.py</i><br/>(presentation only)"]
-    SVC["Service Layer<br/><i>product_service.py</i><br/><i>csv_import_service.py</i><br/><i>purchase_service.py</i><br/>(business logic, validation, orchestration)"]
+    SVC["Service Layer<br/><i>product_service.py</i><br/><i>csv_import_service.py</i><br/><i>purchase_service.py</i><br/><i>payment_gateway.py</i><br/>(business logic, validation, orchestration)"]
     REPO["Repository Layer<br/><i>product_repository.py</i><br/>(pure data access / CRUD)"]
     MODEL["Model / DB Layer<br/><i>models/product.py</i><br/><i>db/database.py</i><br/>(SQLAlchemy models + session)"]
 
@@ -48,6 +48,7 @@ sequenceDiagram
     participant UI as Streamlit UI
     participant PS as PurchaseService
     participant Repo as ProductRepository
+    participant Pay as FakePaymentGateway
     participant DB as SQLite
 
     User->>UI: Click "Buy" (product_id, quantity)
@@ -58,12 +59,20 @@ sequenceDiagram
     Repo-->>PS: Product
 
     alt stock >= quantity
-        PS->>Repo: update(product_id, stock - quantity)
-        Repo->>DB: UPDATE products SET stock=?
-        DB-->>Repo: OK
-        Repo-->>PS: updated Product
-        PS-->>UI: success (fake payment confirmed)
-        UI-->>User: "Purchase successful"
+        PS->>Pay: process_payment(total)
+        alt payment approved
+            Pay-->>PS: PaymentResult(success=True, transaction_id)
+            PS->>Repo: update(product_id, stock - quantity)
+            Repo->>DB: UPDATE products SET stock=?
+            DB-->>Repo: OK
+            Repo-->>PS: updated Product
+            PS-->>UI: success (transaction_id, total, remaining_stock)
+            UI-->>User: "Purchase successful"
+        else payment declined
+            Pay-->>PS: PaymentResult(success=False, message)
+            PS-->>UI: error "Payment declined" (stock untouched)
+            UI-->>User: "Payment was declined, please try again"
+        end
     else stock < quantity
         PS-->>UI: error "Insufficient stock"
         UI-->>User: "Not enough stock available"
@@ -112,8 +121,17 @@ classDiagram
     }
 
     class PurchaseService {
-        +purchase(product_id, quantity) bool
-        -check_stock(product_id, quantity) bool
+        +purchase(product_id, quantity) dict
+    }
+
+    class FakePaymentGateway {
+        +process_payment(amount) PaymentResult
+    }
+
+    class PaymentResult {
+        +bool success
+        +str transaction_id
+        +str message
     }
 
     class AppError {
@@ -123,15 +141,19 @@ classDiagram
     class ValidationError
     class DuplicateError
     class InsufficientStockError
+    class PaymentDeclinedError
 
     AppError <|-- NotFoundError
     AppError <|-- ValidationError
     AppError <|-- DuplicateError
     AppError <|-- InsufficientStockError
+    AppError <|-- PaymentDeclinedError
 
     ProductService --> ProductRepository : uses
     CsvImportService --> ProductService : uses
     PurchaseService --> ProductRepository : uses
+    PurchaseService --> FakePaymentGateway : uses
+    FakePaymentGateway --> PaymentResult : returns
     ProductRepository --> Product : manages
 ```
 
@@ -148,12 +170,12 @@ Pure data access — create, read, update, delete against the database, with no 
 SQLAlchemy models (the schema definition) and the database session/engine setup.
 
 ### Exceptions (`app/exceptions.py`)
-A shared exception hierarchy (`AppError` as base, with `NotFoundError`, `ValidationError`, `DuplicateError`, `InsufficientStockError` as specific subtypes) used across all services. This lets the UI catch errors either generically (`except AppError`) or specifically (`except DuplicateError`) without relying on parsing error message text.
+A shared exception hierarchy (`AppError` as base, with `NotFoundError`, `ValidationError`, `DuplicateError`, `InsufficientStockError`, `PaymentDeclinedError` as specific subtypes) used across all services. This lets the UI catch errors either generically (`except AppError`) or specifically (`except DuplicateError`) without relying on parsing error message text.
 
 ## Key Design Decisions
 
 ### 1. SQLite + SQLAlchemy (instead of PostgreSQL)
-Given the 5-business-day timebox, SQLite was chosen for zero-configuration local persistence (a single file, no separate DB server/container to manage). SQLAlchemy is used as the ORM layer specifically so that **switching to PostgreSQL later would only require changing the connection string** — the models, repository, and service layers would not need to change. This keeps the "enterprise-readiness" trade-off explicit: it's a deliberate simplification for the timebox, not a lack of awareness of production requirements.
+Given the time constraint, SQLite was chosen for zero-configuration local persistence (a single file, no separate DB server/container to manage). SQLAlchemy is used as the ORM layer specifically so that **switching to PostgreSQL later would only require changing the connection string** — the models, repository, and service layers would not need to change. This keeps the "enterprise-readiness" trade-off explicit: it's a deliberate simplification for the timebox, not a lack of awareness of production requirements.
 
 ### 2. Streamlit (instead of a fully separated frontend/backend)
 A frontend/backend split (e.g., FastAPI + React) is the more decoupled, "correct" architecture for a real production system. It was considered, but given the time constraint, Streamlit was chosen for the presentation layer to maximize time spent on correct business logic and data modeling rather than frontend plumbing. To avoid mixing the UI with business logic in Streamlit scripts, **the UI layer is kept as a thin client that only calls the service layer** — no business rules live in `streamlit_app.py`. This means migrating to a REST API frontend later would only require replacing the UI layer.
@@ -182,6 +204,11 @@ The initial design had `CsvImportService` calling `ProductRepository` directly. 
 ### 8. Price of exactly `$0.00` is treated as valid
 An early validation bug rejected products with `price = 0.00` as "missing required field," because Python treats `0.0` as a falsy value. This was corrected: a `None` or empty price is invalid, but an explicit `0.00` is treated as a legitimate value (e.g., promotional or free items, such as a "Mystery Box" product found in the test dataset). See `Bugs.md` for the full root-cause writeup.
 
+### 9. Fake payment as a mockable gateway, not a skipped step
+Rather than skipping payment entirely, purchases go through a `FakePaymentGateway` — a class with the same shape a real payment provider integration would have (`process_payment(amount) -> PaymentResult`). It simulates a 10% decline rate. `PurchaseService` accepts the gateway via dependency injection (defaulting to `FakePaymentGateway` if none is provided). Naming it `FakePaymentGateway` is intentional to document its own nature directly in the code.
+
+**Order of operations:** stock is checked, then payment is attempted, and only on approval stock is decremented.
+
 ## What Would Change for a Production Deployment
 
 Given the time constraint, the priority was to have a working "first version." If a more production-ready, robust version is needed later, the following changes would apply:
@@ -189,7 +216,7 @@ Given the time constraint, the priority was to have a working "first version." I
 - **Database:** SQLite → PostgreSQL (connection string change only, thanks to SQLAlchemy)
 - **UI:** Streamlit → REST API (FastAPI) + separately deployed frontend, for independent scaling and better separation of deploy cycles
 - **Auth:** none implemented (out of scope) — would add an auth/authorization layer between UI and service layer
-- **Payment:** Faked — would integrate a real payment provider behind the `purchase_service` interface, without changing its calling contract
+- **Payment:** `FakePaymentGateway` → a real provider, implementing the same `process_payment(amount) -> PaymentResult` shape so `PurchaseService` would not need to change
 - **Order lifecycle:** if order tracking becomes a requirement, model it as a state machine (see Design Decision #5)
 - **Multiple clients:** add an API layer (e.g., FastAPI) exposing the existing Service Layer over the network, without rewriting business logic (see Design Decision #6); combined with the PostgreSQL migration, this would also require row-level locking on stock updates to prevent overselling under concurrent purchases
 

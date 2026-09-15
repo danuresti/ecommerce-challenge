@@ -21,3 +21,7 @@ class DuplicateError(AppError):
 class InsufficientStockError(AppError):
     """Raised when a purchase is attempted with insufficient stock."""
     pass
+
+class PaymentDeclinedError(AppError):
+    """Raised when the payment gateway declines a transaction."""
+    pass
