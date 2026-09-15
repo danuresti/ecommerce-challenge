@@ -62,7 +62,38 @@ Run Streamlit via `python -m streamlit run app/ui/streamlit_app.py` instead. Usi
 While on the "Edit / Delete" tab, selecting a different product from the dropdown (which triggers a rerun, like any widget interaction in Streamlit) caused the UI to jump back to the first tab ("View All"), and any pending flash message was lost with it.
 
 **Cause:**
-`st.tabs()` does not persist which tab is active across reruns — every rerun redraws the first tab by default. Since *any* widget interaction (not just tab clicks) triggers a full script rerun in Streamlit, this made multi-step workflows within a tabbed section unusable.
+By default, `st.tabs()` does not track which tab is active — every rerun redraws the first tab. Since *any* widget interaction (not just tab clicks) triggers a full script rerun in Streamlit, this made multi-step workflows within a tabbed section unusable.
+
+**Initial workaround:** replaced `st.tabs()` with `st.radio([...], horizontal=True, key=...)`, since a keyed widget persists its value across reruns.
+
+**Final fix:** the installed Streamlit version (1.63.0) supports state tracking natively on `st.tabs()` via the `key` and `on_change="rerun"` parameters. Reverted to `st.tabs(["View All", "Create", "Edit / Delete"], key="products_tab", on_change="rerun")`, which persists the active tab, restoring the original visual style without the earlier bug.
+
+---
+
+## 5. `number_input` with `max_value` silently rejects a valid quantity check without updating state
+
+**Bug:**
+On the Shop page, typing a quantity greater than available stock (e.g. `10` when stock is `5`) into a `number_input` with `max_value=product.stock` showed a validation error visually, but: (a) the "Buy" button remained enabled and a purchase could still be submitted, and (b) a live total computed from the same `quantity` variable did not update to reflect the typed value.
+
+**Cause:**
+When `max_value` is set, Streamlit's frontend intercepts an out-of-range typed value before it reaches the Python-side variable — the widget's return value silently stays at the last *valid* value rather than reflecting what the user actually typed. Downstream code (`exceeds_stock = quantity > product.stock`, the live total) never saw the real input, so both checks incorrectly evaluated against a stale, valid-looking quantity.
 
 **Fix:**
-Replaced `st.tabs([...])` with `st.radio([...], horizontal=True, key="products_section")`. Because `st.radio` is a regular stateful widget tied to a `key`, Streamlit persists its selected value across reruns the same way it does for any other widget (e.g., the product `selectbox`), keeping the user on the same section after an interaction.
+Removed `max_value` from the `number_input` entirely and implemented the validation explicitly in application code: `exceeds_stock = quantity > product.stock`, computed after reading `quantity` unconstrained. This value now drives (1) disabling the "Buy" button, (2) an explicit error message, and (3) a defensive re-check (`if buy_clicked and not exceeds_stock:`) before calling `PurchaseService.purchase()`.
+
+---
+
+## 6. `st.toast()` does not reliably update across `st.rerun()` calls
+
+**Bug:**
+Using `st.toast()` for purchase/update/delete confirmations (via a `st.session_state["flash"]` pattern, shown at the top of the script and popped after display) worked for a single action, but if a toast was still visible on screen when a second action occurred, the toast did not update to the new message — the old text remained displayed.
+
+**Investigation:**
+- Streamlit's official docs describe an "update a toast message" pattern: assign `msg = st.toast(...)`, then call `msg.toast(...)` later to update the same toast *in place*, explicitly noting "if a toast has already disappeared or been dismissed, the update will not be seen."
+- A related official issue ([streamlit/streamlit#7740](https://github.com/streamlit/streamlit/issues/7740), "Toasts are not preserved when page is rerun") confirms `st.toast()` combined with a programmatic rerun (`st.rerun()`) is a known source of unreliable toast behavior — not an isolated case.
+- **Attempted fix:** stored the toast handle in `st.session_state` (`st.session_state.toast_handle = st.toast(...)`) and called `.toast()` on the stored handle for subsequent updates, following the documented "update" pattern. This did **not** resolve the issue — the handle does not survive a full script rerun in a way that lets the frontend recognize it as the same toast, since `st.rerun()` rebuilds the entire element tree from scratch each execution.
+
+**Fix:**
+Replaced `st.toast()` with a persistent `st.success()` message plus a manual dismiss button (`✕`), rendered in a narrow adjacent column. The flash message is read (not popped) from `st.session_state["flash"]` on each rerun, so it remains visible until either a new action overwrites it or the user dismisses it explicitly by deleting the session state key. This trades the auto-fade visual effect for reflecting the most recent action instead, which has priority.
+
+**Known limitation, deferred:** a reliably auto-dismissing confirmation message (matching the original `st.toast()` intent) was not achieved within the timebox. Documented in `Architecture.md` as a future UI improvement.

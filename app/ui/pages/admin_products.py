@@ -7,17 +7,21 @@ st.title("🔧 Manage Products")
 product_service = get_product_service()
 
 if "flash" in st.session_state:
-    st.toast(st.session_state.pop("flash"), icon="✅")
+    col1, col2 = st.columns([20, 1])
+    with col1:
+        st.success(st.session_state["flash"])
+    with col2:
+        if st.button("✕", key="dismiss_flash"):
+            del st.session_state["flash"]
+            st.rerun()
 
-section = st.radio(
-    "Section",
+tab_list, tab_create, tab_edit = st.tabs(
     ["View All", "Create", "Edit / Delete"],
-    horizontal=True,
-    label_visibility="collapsed",
-    key="products_section",
+    key="products_tab",
+    on_change="rerun",
 )
 
-if section == "View All":
+with tab_list:
     products = product_service.list_products()
     if not products:
         st.info("No products yet.")
@@ -38,7 +42,7 @@ if section == "View All":
             use_container_width=True,
         )
 
-elif section == "Create":
+with tab_create:
     with st.form("create_product_form", clear_on_submit=True):
         name = st.text_input("Name")
         sku = st.text_input("SKU")
@@ -66,7 +70,7 @@ elif section == "Create":
             except (ValidationError, DuplicateError) as e:
                 st.error(str(e))
 
-elif section == "Edit / Delete":
+with tab_edit:
     products = product_service.list_products()
     if not products:
         st.info("No products to edit.")
@@ -78,8 +82,16 @@ elif section == "Edit / Delete":
 
         with st.form("edit_product_form"):
             name = st.text_input("Name", value=product.name)
+            sku = st.text_input("SKU", value=product.sku)
+            category = st.text_input("Category", value=product.category or "")
             price = st.number_input("Price", min_value=0.0, step=0.01, value=float(product.price))
             stock = st.number_input("Stock", min_value=0, step=1, value=product.stock)
+            weight_kg = st.number_input(
+                "Weight (kg)",
+                min_value=0.0,
+                step=0.1,
+                value=float(product.weight_kg) if product.weight_kg else 0.0,
+            )
 
             col1, col2 = st.columns(2)
             with col1:
@@ -91,10 +103,13 @@ elif section == "Edit / Delete":
                 try:
                     product_service.update_product(selected_id, {
                         "name": name,
+                        "sku": sku,
+                        "category": category,
                         "price": price,
                         "stock": int(stock),
+                        "weight_kg": weight_kg,
                     })
-                    st.session_state["flash"] = "Product updated."
+                    st.session_state["flash"] = f"Product '{name}' updated."
                     st.rerun()
                 except (ValidationError, DuplicateError, NotFoundError) as e:
                     st.error(str(e))
@@ -102,7 +117,7 @@ elif section == "Edit / Delete":
             if delete_submitted:
                 try:
                     product_service.delete_product(selected_id)
-                    st.session_state["flash"] = "Product deleted."
+                    st.session_state["flash"] = f"Product '{product.name}' deleted."
                     st.rerun()
                 except NotFoundError as e:
                     st.error(str(e))

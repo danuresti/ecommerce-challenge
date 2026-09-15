@@ -9,12 +9,11 @@ get_purchase_service()
 
 admin_products = st.Page("pages/admin_products.py", title="Manage Products", icon="🔧")
 admin_import_csv = st.Page("pages/admin_import_csv.py", title="Import CSV", icon="📥")
-storefront_search = st.Page("pages/storefront_search.py", title="Search Products", icon="🔍")
-storefront_purchase = st.Page("pages/storefront_purchase.py", title="Purchase", icon="🛍️")
+storefront_shop = st.Page("pages/storefront_shop.py", title="Shop", icon="🛍️")
 
 pg = st.navigation({
     "Admin": [admin_products, admin_import_csv],
-    "Storefront": [storefront_search, storefront_purchase],
+    "Shop": [storefront_shop],
 })
 
 pg.run()
