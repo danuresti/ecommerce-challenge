@@ -31,6 +31,8 @@ The provided example CSV was intentionally adversarial, testing the import pipel
 | Duplicate SKUs within the same CSV | First occurrence imported; subsequent duplicates rejected via `DuplicateError`, same as any other creation path |
 | Optional `weight_kg` left blank | Accepted, stored as `None` |
 
+**UI note:** the import error list (shown after a CSV import with skipped rows) has a manual dismiss button, consistent with the dismiss pattern used for confirmation messages elsewhere in the UI (see Design Decisions #12, #14). A successful import with zero errors also automatically clears any leftover error list from a previous import.
+
 ## Security considerations validated against test data
 
 The provided CSV included adversarial test rows (an XSS payload and a SQL injection string, both used as product names). Both were handled safely without any special-casing required:
@@ -93,7 +95,9 @@ Using `st.toast()` for purchase/update/delete confirmations (via a `st.session_s
 - A related official issue ([streamlit/streamlit#7740](https://github.com/streamlit/streamlit/issues/7740), "Toasts are not preserved when page is rerun") confirms `st.toast()` combined with a programmatic rerun (`st.rerun()`) is a known source of unreliable toast behavior — not an isolated case.
 - **Attempted fix:** stored the toast handle in `st.session_state` (`st.session_state.toast_handle = st.toast(...)`) and called `.toast()` on the stored handle for subsequent updates, following the documented "update" pattern. This did **not** resolve the issue — the handle does not survive a full script rerun in a way that lets the frontend recognize it as the same toast, since `st.rerun()` rebuilds the entire element tree from scratch each execution.
 
-**Fix:**
-Replaced `st.toast()` with a persistent `st.success()` message plus a manual dismiss button (`✕`), rendered in a narrow adjacent column. The flash message is read (not popped) from `st.session_state["flash"]` on each rerun, so it remains visible until either a new action overwrites it or the user dismisses it explicitly by deleting the session state key. This trades the auto-fade visual effect for reflecting the most recent action instead, which has priority.
+**Resolution:**
+The resolution differs by page based on realistic usage risk:
+- **Shop page:** redesigned confirmation messages to be contextual per product instead of a single global flash. This sidesteps the bug entirely for the page where rapid consecutive actions are possible, and as a side benefit fixed a related visibility problem; a global message at the top of a long, scrolled page was easy to miss.
+- **Admin pages** (`admin_products.py`, `admin_import_csv.py`): kept `st.toast()`. Manual testing found the bug reproducible specifically when updating a product and then immediately deleting it via the adjacent "Update"/"Delete" buttons on the same "Edit / Delete" form, well within the toast's ~4-second window. Outside that specific adjacent-buttons case, normal pacing across other actions does not trigger it. Risk accepted: worst case is a missed confirmation message for the first of two rapid actions; both operations still complete correctly in the database regardless of what the toast displays — there is no data integrity impact.
 
-**Known limitation, deferred:** a reliably auto-dismissing confirmation message (matching the original `st.toast()` intent) was not achieved within the timebox. Documented in `Architecture.md` as a future UI improvement.
+**Known limitation, deferred:** a single, reliably auto-dismissing confirmation pattern usable everywhere (matching the original `st.toast()` intent without its reliability caveat) was not found within the timebox. Documented in `Architecture.md` (Design Decision #12) as a candidate future improvement.

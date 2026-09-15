@@ -217,8 +217,25 @@ The challenge implies two distinct real-world personas — the seller managing t
 ### 11. Search and Purchase merged into a single "Shop" page, one product at a time
 The Storefront was initially planned as two separate pages (Search, then a distinct Purchase page). The two were merged into a single `storefront_shop.py` page: search results are shown as a list, each with its own quantity selector and "Buy" button inline, so search and purchase happen in the same view. `PurchaseService.purchase(product_id, quantity)` still handles one product at a time — a real shopping cart was considered and explicitly deferred. Implementing a cart would require: cart state in `st.session_state`, a new `PurchaseService` method to handle multiple items in one payment attempt, and a business decision on how to handle partial stock failures. This is a next step to improve the system.
 
-### 12. Confirmation messages use `st.success` with manual dismiss, not an auto-fading toast
-Purchase/update/delete confirmations were originally implemented with `st.toast()`, intended to auto-dismiss after a few seconds. However he message did not update to reflect the latest action, a behavior consistent with a known Streamlit issue when `st.toast()` is combined with `st.rerun()` (see `Bugs.md`). The confirmation pattern was switched to a persistent `st.success()` message with a manual dismiss button, trading the auto-fade effect so the displayed message always matches the most recent action. A reliably auto-dismissing confirmation is left as a future UI improvement.
+### 12. Confirmation messages: `st.toast` in Admin, contextual inline messages in Shop
+Purchase/update/delete confirmations were originally implemented globally with `st.toast()`, intended to auto-dismiss after a few seconds. However the message did not update to reflect the latest action, a behavior consistent with a known Streamlit issue when `st.toast()` is combined with `st.rerun()` (see `Bugs.md`).
+
+Two different resolutions were applied depending on the page:
+- **Admin pages** (`admin_products.py`, `admin_import_csv.py`): kept `st.toast()` via the shared `show_flash()` component; its exposure to this bug was later narrowed further — see Design Decision #14, which moved Create and Update confirmations to a separate, per-tab "pop" pattern. Today, `st.toast()` on the Admin side only fires for product deletion and CSV import, two actions that don't naturally occur back to back within the toast's ~4-second window in normal use.
+- **Shop page** (`storefront_shop.py`): does not use the global flash pattern at all. Since buying multiple different products in quick succession is a realistic customer behavior, a global toast is fragile here. Instead, each product's purchase result is rendered as a persistent message inline within that product's own container, with a manual dismiss button. Only the most recent purchase's message is kept.
+
+### 13. Purchase confirmation via `st.dialog`, not an inline confirm/cancel step
+To prevent accidental purchases, a confirmation step was added before `PurchaseService.purchase()` is actually called. Here, st.dialog() is used for this purpose as a native modal, only one dialog can be open at a time, which also prevents two confirmations from being open simultaneously.
+
+### 14. Admin confirmation messages: consumed-once ("pop") pattern instead of persistent
+Create and Update confirmation messages on the Admin product page are deleted from `st.session_state` immediately after being rendered once, rather than kept persistently. This means the message still displays and stays visible on screen until the user's next interaction of any kind. Delete still uses the shared global `st.toast()` flash (see Design Decision #12) since a deleted product leaves no stable container to attach an inline message to.
+
+### 15. Button color semantics: `primary` for the expected action, `secondary` for exit/destructive actions
+Streamlit's `st.button` only offers three styles (`primary`: filled with the app's single theme accent color; `secondary`: outlined, blends with the background; `tertiary`: plain text) — there is no built-in distinct "danger" color separate from `primary`, and custom per-button colors would require injecting custom CSS, which was avoided elsewhere in this project for fragility and consistency reasons.
+
+Given that constraint, a consistent semantic was applied across the app rather than assigning color arbitrarily per button: `type="primary"` marks the expected, main action of a section (Create Product, Update Product, Buy, Confirm purchase, Import CSV), while `type="secondary"` (the default when no type is set) is used for exit or destructive actions (Delete Product, Cancel). This is a deliberate UX choice, intended to reduce the chance of an accidental click on what is, as noted above, a destructive action.
+
+**Future improvement:** a distinct, purpose-built color palette was not pursued within the timebox, since it would require either custom CSS or a Streamlit theme config that only supports a single accent color. Worth revisiting with a proper design system if the UI evolves beyond this challenge's scope.
 
 ## What Would Change for a Production Deployment
 
@@ -230,8 +247,9 @@ Given the time constraint, the priority was to have a working "first version." I
 - **Payment:** `FakePaymentGateway` → a real provider, implementing the same `process_payment(amount) -> PaymentResult` shape so `PurchaseService` would not need to change
 - **Order lifecycle:** if order tracking becomes a requirement, model it as a state machine (see Design Decision #5)
 - **Multiple clients:** add an API layer (e.g., FastAPI) exposing the existing Service Layer over the network, without rewriting business logic (see Design Decision #6); combined with the PostgreSQL migration, this would also require row-level locking on stock updates to prevent overselling under concurrent purchases
-- **Shopping cart:** replace the current one-product-at-a-time purchase flow with a real cartto handle multiple items in a single payment attempt, and a defined policy for partial stock failures at checkout (see Design Decision #11)
-- **Confirmation UX:** replace the persistent `st.success` + manual dismiss pattern with a reliably auto-dismissing notification, once a stable approach is found (see Design Decision #12)
+- **Shopping cart:** replace the current one-product-at-a-time purchase flow with a real cart to handle multiple items in a single payment attempt, and a defined policy for partial stock failures at checkout (see Design Decision #11)
+- **Confirmation UX:** a reliably auto-dismissing notification would replace the current split approach — `st.toast` in Admin (accepted low-risk) and persistent inline messages in Shop (see Design Decision #12)
+- **Visual design system:** a proper color palette would replace the current `primary`/`secondary` button semantics (see Design Decision #15)
 
 ## Note on Code Comments
 Per the challenge instructions ("if you use AI, please remove comments from the code"), the source code intentionally contains no inline comments. Any "why" behind a non-obvious implementation choice is documented here instead, or in `Bugs.md`, rather than as code comments.
