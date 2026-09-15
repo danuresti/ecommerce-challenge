@@ -160,6 +160,8 @@ classDiagram
 ### UI Layer (`app/ui/`)
 Responsible **only** for rendering and capturing user input. It calls the service layer and displays results — it never talks to the database or repository directly, and it contains no business rules (e.g., it doesn't decide whether a SKU is valid; it just shows the error the service layer returns).
 
+**Note on style:** unlike the rest of the codebase (which is class-based OOP), the UI layer is written as procedural scripts. This matches Streamlit's own execution model — the entire script reruns top-to-bottom on every user interaction, so wrapping pages in classes would not provide the usual OOP benefits (state has to live in `st.session_state` regardless of whether the surrounding code is a class or a script). Business logic that does benefit from encapsulation and reuse (validation, orchestration, persistence) stays in the class-based Service/Repository layers underneath; the UI stays a thin, procedural caller of those objects.
+
 ### Service Layer (`app/services/`)
 Contains the business rules: validating input, orchestrating multiple repository calls, applying domain logic (e.g., "purchasing a product must decrement stock and fail if stock is insufficient"). This is the layer unit tests target most heavily, since it holds the logic that actually matters to correctness. It is implemented in a modular way, so that each responsibility is handled by one, and only one, module — reducing maintenance effort and bug-fixing time.
 
@@ -209,13 +211,16 @@ Rather than skipping payment entirely, purchases go through a `FakePaymentGatewa
 
 **Order of operations:** stock is checked, then payment is attempted, and only on approval stock is decremented.
 
+### 10. Admin/Storefront navigation split, without real authentication
+The challenge implies two distinct real-world personas — the seller managing the catalog, and the end customer searching and purchasing — even though the spec does not explicitly require role separation or auth. The UI reflects this distinction at the navigation level: `st.navigation()` groups pages into "Admin" (product CRUD, CSV import) and "Storefront" (search, purchase) sections in the sidebar, without any login — anyone can access any page today. At the same time, `app/ui/services.py` exposes separate getters (`get_product_service()`, `get_csv_import_service()`, `get_purchase_service()`) rather than a single function returning everything. This was a deliberate, scoped trade-off: the getters currently all return the same full `ProductService` (which has both read methods like `search`/`get_product` and write methods like `create_product`/`delete_product`), so a Storefront page technically *could* call an Admin-only method — nothing prevents it at the type level today. A stronger version of this separation was considered — splitting `ProductService` into a read-only `ProductCatalogService` (for Storefront) and a `ProductAdminService` (for Admin), so that Storefront pages would receive an object that does not even define write methods, making misuse a hard `AttributeError` rather than a convention to follow. This was deferred given the timebox; the current getters are the point where that split would happen without touching page code, if pursued later.
+
 ## What Would Change for a Production Deployment
 
 Given the time constraint, the priority was to have a working "first version." If a more production-ready, robust version is needed later, the following changes would apply:
 
 - **Database:** SQLite → PostgreSQL (connection string change only, thanks to SQLAlchemy)
 - **UI:** Streamlit → REST API (FastAPI) + separately deployed frontend, for independent scaling and better separation of deploy cycles
-- **Auth:** none implemented (out of scope) — would add an auth/authorization layer between UI and service layer
+- **Auth:** none implemented (out of scope) — would add an auth/authorization layer between UI and service layer; combined with Design Decision #10, this would also justify splitting `ProductService` into `ProductAdminService`/`ProductCatalogService` so Storefront pages structurally cannot access write operations, rather than relying on convention
 - **Payment:** `FakePaymentGateway` → a real provider, implementing the same `process_payment(amount) -> PaymentResult` shape so `PurchaseService` would not need to change
 - **Order lifecycle:** if order tracking becomes a requirement, model it as a state machine (see Design Decision #5)
 - **Multiple clients:** add an API layer (e.g., FastAPI) exposing the existing Service Layer over the network, without rewriting business logic (see Design Decision #6); combined with the PostgreSQL migration, this would also require row-level locking on stock updates to prevent overselling under concurrent purchases

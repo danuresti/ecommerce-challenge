@@ -37,3 +37,32 @@ The provided CSV included adversarial test rows (an XSS payload and a SQL inject
 
 - **SQL injection:** no risk — SQLAlchemy's ORM uses parameterized queries, not raw string concatenation, so the malicious string is stored and retrieved as inert text.
 - **XSS:** Streamlit escapes HTML by default in its rendering components (`st.write`, `st.dataframe`, etc.). The UI layer avoids `unsafe_allow_html=True` anywhere, so injected markup is never rendered as live HTML.
+
+---
+
+## 3. `ModuleNotFoundError: No module named 'app'` when running Streamlit directly
+
+**Error:**
+```
+from app.ui.services import get_product_service, get_csv_import_service, get_purchase_service
+ModuleNotFoundError: No module named 'app'
+```
+
+**Cause:**
+Running `streamlit run app/ui/streamlit_app.py` directly adds the script's own directory (`app/ui/`) to Python's module search path, not the project root. Since `app` is a package rooted at the project root, absolute imports like `from app.ui.services import ...` failed to resolve.
+
+**Fix:**
+Run Streamlit via `python -m streamlit run app/ui/streamlit_app.py` instead. Using `-m` adds the current working directory (the project root) to the search path rather than the script's directory. The Dockerfile's `CMD` uses the same `python -m streamlit run ...` form for the same reason.
+
+---
+
+## 4. `st.tabs()` loses selection on every rerun
+
+**Bug:**
+While on the "Edit / Delete" tab, selecting a different product from the dropdown (which triggers a rerun, like any widget interaction in Streamlit) caused the UI to jump back to the first tab ("View All"), and any pending flash message was lost with it.
+
+**Cause:**
+`st.tabs()` does not persist which tab is active across reruns — every rerun redraws the first tab by default. Since *any* widget interaction (not just tab clicks) triggers a full script rerun in Streamlit, this made multi-step workflows within a tabbed section unusable.
+
+**Fix:**
+Replaced `st.tabs([...])` with `st.radio([...], horizontal=True, key="products_section")`. Because `st.radio` is a regular stateful widget tied to a `key`, Streamlit persists its selected value across reruns the same way it does for any other widget (e.g., the product `selectbox`), keeping the user on the same section after an interaction.
