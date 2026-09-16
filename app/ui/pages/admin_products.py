@@ -1,7 +1,10 @@
+import logging
 import streamlit as st
 from app.ui.services import get_product_service
 from app.ui.components import show_flash
-from app.exceptions import ValidationError, DuplicateError, NotFoundError
+from app.core.exceptions import ValidationError, DuplicateError, NotFoundError
+
+logger = logging.getLogger(__name__)
 
 st.title("🔧 Manage Products")
 
@@ -33,7 +36,7 @@ with tab_list:
                 }
                 for p in products
             ],
-            use_container_width=True,
+            width="stretch",
         )
 
 with tab_create:
@@ -72,6 +75,9 @@ with tab_create:
                 st.rerun()
             except (ValidationError, DuplicateError) as e:
                 st.error(str(e))
+            except Exception as e:
+                logger.exception(f"Unexpected error creating product: sku={sku}")
+                st.error("An unexpected error occurred. Please try again.")
 
 with tab_edit:
     products = product_service.list_products()
@@ -125,6 +131,9 @@ with tab_edit:
                     st.rerun()
                 except (ValidationError, DuplicateError, NotFoundError) as e:
                     st.error(str(e))
+                except Exception as e:
+                    logger.exception(f"Unexpected error editing product: sku={sku}")
+                    st.error("An unexpected error occurred. Please try again.")
 
             if delete_submitted:
                 try:
@@ -133,3 +142,6 @@ with tab_edit:
                     st.rerun()
                 except NotFoundError as e:
                     st.error(str(e))
+                except Exception as e:
+                    logger.exception(f"Unexpected error deleting product: sku={sku}")
+                    st.error("An unexpected error occurred. Please try again.")

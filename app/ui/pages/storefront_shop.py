@@ -1,7 +1,10 @@
+import logging
 import streamlit as st
 from itertools import groupby
 from app.ui.services import get_product_service, get_purchase_service
-from app.exceptions import NotFoundError, InsufficientStockError, ValidationError, PaymentDeclinedError
+from app.core.exceptions import NotFoundError, InsufficientStockError, ValidationError, PaymentDeclinedError
+
+logger = logging.getLogger(__name__)
 
 st.title("🛍️ Shop")
 
@@ -36,6 +39,9 @@ def confirm_purchase(product_id, product_name, quantity, total):
                 st.session_state.last_message = (product_id, "error", f"Payment declined: {e}")
             except (NotFoundError, ValidationError) as e:
                 st.session_state.last_message = (product_id, "error", str(e))
+            except Exception as e:
+                logger.exception(f"Unexpected error during purchase: product_id={product_id}")
+                st.session_state.last_message = (product_id, "error", "An unexpected error occurred. Please try again.")
             st.rerun()
     with col2:
         if st.button("Cancel"):
@@ -55,9 +61,9 @@ with search_col:
         key="search_query",
     )
 with search_btn_col:
-    st.button("Search", use_container_width=True)
+    st.button("Search", width="stretch")
 with clear_btn_col:
-    st.button("Clear", use_container_width=True, on_click=clear_search)
+    st.button("Clear", width="stretch", on_click=clear_search)
 
 products = product_service.search(query) if query else product_service.list_products()
 products = sorted(products, key=lambda p: ((p.category or "").lower(), p.name.lower()))

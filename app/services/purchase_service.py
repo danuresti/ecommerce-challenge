@@ -1,6 +1,9 @@
+import logging
 from app.repository.product_repository import ProductRepository
 from app.services.payment_gateway import FakePaymentGateway
-from app.exceptions import NotFoundError, InsufficientStockError, ValidationError, PaymentDeclinedError
+from app.core.exceptions import NotFoundError, InsufficientStockError, ValidationError, PaymentDeclinedError
+
+logger = logging.getLogger(__name__)
 
 
 class PurchaseService:
@@ -17,6 +20,10 @@ class PurchaseService:
             raise NotFoundError(f"Product with id {product_id} not found.")
 
         if product.stock < quantity:
+            logger.warning(
+                f"Insufficient stock: product_id={product_id}, requested={quantity}, "
+                f"available={product.stock}"
+            )
             raise InsufficientStockError(
                 f"Insufficient stock for '{product.name}': "
                 f"requested {quantity}, available {product.stock}."
@@ -26,9 +33,15 @@ class PurchaseService:
         payment_result = self.payment_gateway.process_payment(total)
 
         if not payment_result.success:
+            logger.warning(f"Payment declined: product_id={product_id}, total={total:.2f}")
             raise PaymentDeclinedError(payment_result.message)
 
         updated = self.repository.update(product_id, {"stock": product.stock - quantity})
+
+        logger.info(
+            f"Purchase completed: product_id={product_id}, quantity={quantity}, "
+            f"total={total:.2f}, transaction_id={payment_result.transaction_id}"
+        )
 
         return {
             "success": True,

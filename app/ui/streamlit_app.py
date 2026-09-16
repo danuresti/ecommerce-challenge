@@ -1,5 +1,8 @@
 import streamlit as st
+from app.core.logging_config import configure_logging
 from app.ui.services import get_product_service, get_csv_import_service, get_purchase_service
+
+configure_logging()
 
 st.set_page_config(page_title="E-Commerce Challenge", page_icon="🛒", layout="wide")
 

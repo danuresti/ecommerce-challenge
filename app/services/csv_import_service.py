@@ -1,7 +1,10 @@
+import logging
 import pandas as pd
 from dataclasses import dataclass, field
 from app.services.product_service import ProductService
-from app.exceptions import ValidationError, DuplicateError
+from app.core.exceptions import ValidationError, DuplicateError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -29,7 +32,7 @@ class CsvImportService:
         result.total_rows = len(df)
 
         for index, row in df.iterrows():
-            csv_line = index + 2  # +2: header row + 0-based index offset
+            csv_line = index + 2
 
             if self._is_blank_row(row):
                 result.skipped += 1
@@ -46,6 +49,13 @@ class CsvImportService:
             except (ValueError, TypeError) as e:
                 result.skipped += 1
                 result.errors.append(f"Row {csv_line}: malformed data ({e})")
+
+        logger.info(
+            f"CSV import completed: file={file_path}, total_rows={result.total_rows}, "
+            f"imported={result.imported}, skipped={result.skipped}"
+        )
+        if result.skipped > 0:
+            logger.warning(f"CSV import had {result.skipped} skipped row(s): file={file_path}")
 
         return result
 

@@ -1,9 +1,12 @@
+import logging
 import streamlit as st
 import tempfile
 import os
 from app.ui.services import get_csv_import_service
 from app.ui.components import show_flash
-from app.exceptions import ValidationError
+from app.core.exceptions import ValidationError
+
+logger = logging.getLogger(__name__)
 
 st.title("📥 Import Products from CSV")
 
@@ -37,6 +40,9 @@ if uploaded_file is not None:
             st.rerun()
         except ValidationError as e:
             st.error(f"Import failed: {e}")
+        except Exception as e:
+            logger.exception(f"Unexpected error during CSV import: file={uploaded_file.name}")
+            st.error("An unexpected error occurred during import. Please try again.")
         finally:
             os.remove(tmp_path)
 

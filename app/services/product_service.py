@@ -1,6 +1,9 @@
+import logging
 from app.repository.product_repository import ProductRepository
 from app.models.product import Product
-from app.exceptions import NotFoundError, ValidationError, DuplicateError
+from app.core.exceptions import NotFoundError, ValidationError, DuplicateError
+
+logger = logging.getLogger(__name__)
 
 
 class ProductService:
@@ -12,10 +15,13 @@ class ProductService:
 
         existing = self.repository.get_by_sku(data["sku"])
         if existing is not None:
+            logger.warning(f"Duplicate SKU rejected on create: sku={data['sku']}")
             raise DuplicateError(f"SKU '{data['sku']}' already exists.")
 
         product = Product(**data)
-        return self.repository.create(product)
+        created = self.repository.create(product)
+        logger.info(f"Product created: id={created.id}, sku={created.sku}, name={created.name}")
+        return created
 
     def update_product(self, product_id: int, data: dict) -> Product:
         self._validate_product_data(data, partial=True)
@@ -23,17 +29,26 @@ class ProductService:
         if "sku" in data:
             existing = self.repository.get_by_sku(data["sku"])
             if existing is not None and existing.id != product_id:
+                logger.warning(
+                    f"Duplicate SKU rejected on update: sku={data['sku']}, product_id={product_id}"
+                )
                 raise DuplicateError(f"SKU '{data['sku']}' already exists.")
 
         updated = self.repository.update(product_id, data)
         if updated is None:
+            logger.warning(f"Update failed, product not found: id={product_id}")
             raise NotFoundError(f"Product with id {product_id} not found.")
+
+        logger.info(f"Product updated: id={updated.id}, sku={updated.sku}")
         return updated
 
     def delete_product(self, product_id: int) -> bool:
         deleted = self.repository.delete(product_id)
         if not deleted:
+            logger.warning(f"Delete failed, product not found: id={product_id}")
             raise NotFoundError(f"Product with id {product_id} not found.")
+
+        logger.info(f"Product deleted: id={product_id}")
         return deleted
 
     def get_product(self, product_id: int) -> Product:
