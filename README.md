@@ -2,7 +2,7 @@
 
 An enterprise-grade e-commerce application built for the technical challenge: product catalog management, CSV import, search, and a purchase flow with a simulated payment gateway.
 
-**Example CSV file downloaded:** September 11th, 2026. The challenge was recevied on September 10th and started working in the design this same date in the evening. However the file was downloaded and used until the next day (11th).
+**Example CSV file downloaded:** September 11th, 2026. The challenge was received on September 10th, and work on the design started that same evening. The example CSV itself, however, was not downloaded and put to use until the following day (the 11th).
 
 ## Tech Stack
 
@@ -22,7 +22,16 @@ An enterprise-grade e-commerce application built for the technical challenge: pr
 
 ## Architecture & Decisions
 
-This README stays intentionally brief. For the full picture, see:
+This README stays intentionally brief. A few of the more relevant decisions:
+
+- **SQLite + SQLAlchemy** instead of PostgreSQL — zero-config for the timebox, but swapping databases later is a one-line connection-string change (Decision #1).
+- **Streamlit** instead of a separate FastAPI + React frontend — the UI stays a thin client over the service layer, so migrating later wouldn't touch business logic (Decision #2).
+- **Layered architecture** (UI → Service → Repository → Model), with a shared exception hierarchy so the UI can handle errors generically or specifically.
+- **Fake payment as a mockable gateway** (`FakePaymentGateway`), not a skipped step — simulates a 10% decline rate to exercise the failure path, not just the happy path (Decision #9).
+- **Admin/Shop navigation split** reflecting the two real personas in the domain, without full authentication (out of scope) — see Decision #10 for what a stronger version would look like.
+- **Purchase confirmation via a native modal** (`st.dialog`) to prevent accidental purchases and simultaneous confirmations (Decision #13).
+
+For the full picture, see:
 
 - **[`docs/Architecture.md`](docs/Architecture.md)** — layered architecture, diagrams (container view, sequence, class diagram), and 17 documented design decisions (why SQLite over PostgreSQL, why Streamlit, the exception hierarchy, the payment gateway design, logging setup, and more), plus what would change for a production deployment.
 - **[`docs/Bugs.md`](docs/Bugs.md)** — bugs found during development, their root causes, and fixes — including a few genuinely non-obvious Streamlit behaviors worth knowing about if you extend this project.

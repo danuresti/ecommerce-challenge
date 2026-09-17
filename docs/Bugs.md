@@ -118,3 +118,18 @@ The installed Streamlit version (1.63.0) deprecated the `use_container_width` bo
 
 **Fix:**
 Replaced all `use_container_width=True` occurrences with `width="stretch"` across the UI.
+
+---
+
+## 8. `clear_on_submit` clears form fields on validation failure too, losing user input
+
+**Bug:**
+The "Create Product" form used `st.form("create_product_form", clear_on_submit=True)`. This clears *all* fields whenever the form is submitted — regardless of whether `ProductService.create_product()` succeeds or raises a validation error. A user who mistyped one field (e.g., left the SKU blank) would see every other field they'd carefully filled in wiped out too, forcing them to start over.
+
+**Cause:**
+`clear_on_submit` resets every field in the form on submission unconditionally — it has no awareness of whether the code that follows succeeds or raises an exception.
+
+**Fix:**
+Removed `clear_on_submit` entirely, replacing it with two asymmetric mechanisms depending on outcome:
+- **On validation failure:** no special handling needed. Each field has an explicit `key` (e.g., `key="create_name"`), so without `clear_on_submit`, a keyed widget's value in `session_state` naturally reflects whatever the user typed.
+- **On success:** a `CREATE_DEFAULTS` dict (blank/zero values for every field) is written to `session_state["create_form_values"]`, followed by a forced `st.rerun()`. At the very top of the script a block checks for `create_form_values` and explicitly reassigns each field's `session_state` key to the stored value, clearing the form only when creation actually succeeded.

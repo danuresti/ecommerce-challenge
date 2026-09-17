@@ -13,6 +13,19 @@ st.title("🔧 Manage Products")
 product_service = get_product_service()
 csv_import_service = get_csv_import_service()
 
+CREATE_FIELDS = ["name", "sku", "description", "category", "price", "stock", "weight_kg"]
+CREATE_DEFAULTS = {
+    "name": "", "sku": "", "description": "", "category": "",
+    "price": 0.0, "stock": 0, "weight_kg": 0.0,
+}
+
+if "create_form_values" in st.session_state:
+    for f in CREATE_FIELDS:
+        st.session_state[f"create_{f}"] = st.session_state["create_form_values"].get(
+            f, CREATE_DEFAULTS[f]
+        )
+    del st.session_state["create_form_values"]
+
 show_flash()
 
 tab_list, tab_create, tab_edit, tab_import = st.tabs(
@@ -56,14 +69,18 @@ with tab_create:
                 pass
         del st.session_state["create_message"]
 
-    with st.form("create_product_form", clear_on_submit=True):
-        name = st.text_input("Name")
-        sku = st.text_input("SKU")
-        description = st.text_area("Description")
-        category = st.text_input("Category")
-        price = st.number_input("Price", min_value=0.0, step=0.01, format="%.2f")
-        stock = st.number_input("Stock", min_value=0, step=1)
-        weight_kg = st.number_input("Weight (kg)", min_value=0.0, step=0.001, format="%.3f")
+    with st.form("create_product_form"):
+        name = st.text_input("Name", key="create_name")
+        sku = st.text_input("SKU", key="create_sku")
+        description = st.text_area("Description", key="create_description")
+        category = st.text_input("Category", key="create_category")
+        price = st.number_input(
+            "Price", min_value=0.0, step=0.01, format="%.2f", key="create_price"
+        )
+        stock = st.number_input("Stock", min_value=0, step=1, key="create_stock")
+        weight_kg = st.number_input(
+            "Weight (kg)", min_value=0.0, step=0.05, format="%.3f", key="create_weight_kg"
+        )
 
         submitted = st.form_submit_button("Create Product", type="primary")
 
@@ -79,6 +96,7 @@ with tab_create:
                     "weight_kg": weight_kg,
                 })
                 st.session_state["create_message"] = f"Product '{name}' created successfully."
+                st.session_state["create_form_values"] = dict(CREATE_DEFAULTS)
                 st.rerun()
             except (ValidationError, DuplicateError) as e:
                 st.error(str(e))
