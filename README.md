@@ -58,7 +58,7 @@ ecommerce-challenge/
 ## Running Locally (Docker — recommended)
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/danuresti/ecommerce-challenge.git
 cd ecommerce-challenge
 docker build -t ecommerce-challenge .
 docker run -p 8501:8501 ecommerce-challenge
@@ -73,7 +73,7 @@ Open **http://localhost:8501** in your browser.
 Requires Python 3.12+.
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/danuresti/ecommerce-challenge.git
 cd ecommerce-challenge
 python -m venv .venv
 .venv\Scripts\Activate.ps1        # Windows PowerShell
