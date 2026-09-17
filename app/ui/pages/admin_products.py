@@ -1,6 +1,8 @@
 import logging
+import tempfile
+import os
 import streamlit as st
-from app.ui.services import get_product_service
+from app.ui.services import get_product_service, get_csv_import_service
 from app.ui.components import show_flash
 from app.core.exceptions import ValidationError, DuplicateError, NotFoundError
 
@@ -9,11 +11,12 @@ logger = logging.getLogger(__name__)
 st.title("🔧 Manage Products")
 
 product_service = get_product_service()
+csv_import_service = get_csv_import_service()
 
 show_flash()
 
-tab_list, tab_create, tab_edit = st.tabs(
-    ["View All", "Create", "Edit / Delete"],
+tab_list, tab_create, tab_edit, tab_import = st.tabs(
+    ["View All", "Create", "Edit / Delete", "Import CSV"],
     key="products_tab",
     on_change="rerun",
 )
@@ -36,6 +39,10 @@ with tab_list:
                 }
                 for p in products
             ],
+            column_config={
+                "Price": st.column_config.NumberColumn(format="$%.2f"),
+                "Weight (kg)": st.column_config.NumberColumn(format="%.3f kg"),
+            },
             width="stretch",
         )
 
@@ -54,9 +61,9 @@ with tab_create:
         sku = st.text_input("SKU")
         description = st.text_area("Description")
         category = st.text_input("Category")
-        price = st.number_input("Price", min_value=0.0, step=0.01)
+        price = st.number_input("Price", min_value=0.0, step=0.01, format="%.2f")
         stock = st.number_input("Stock", min_value=0, step=1)
-        weight_kg = st.number_input("Weight (kg)", min_value=0.0, step=0.1)
+        weight_kg = st.number_input("Weight (kg)", min_value=0.0, step=0.001, format="%.3f")
 
         submitted = st.form_submit_button("Create Product", type="primary")
 
@@ -102,12 +109,15 @@ with tab_edit:
             name = st.text_input("Name", value=product.name)
             sku = st.text_input("SKU", value=product.sku)
             category = st.text_input("Category", value=product.category or "")
-            price = st.number_input("Price", min_value=0.0, step=0.01, value=float(product.price))
+            price = st.number_input(
+                "Price", min_value=0.0, step=0.01, format="%.2f", value=float(product.price)
+            )
             stock = st.number_input("Stock", min_value=0, step=1, value=product.stock)
             weight_kg = st.number_input(
                 "Weight (kg)",
                 min_value=0.0,
-                step=0.1,
+                step=0.05,
+                format="%.3f",
                 value=float(product.weight_kg) if product.weight_kg else 0.0,
             )
 
@@ -132,7 +142,7 @@ with tab_edit:
                 except (ValidationError, DuplicateError, NotFoundError) as e:
                     st.error(str(e))
                 except Exception as e:
-                    logger.exception(f"Unexpected error editing product: sku={sku}")
+                    logger.exception(f"Unexpected error updating product: id={selected_id}")
                     st.error("An unexpected error occurred. Please try again.")
 
             if delete_submitted:
@@ -143,5 +153,54 @@ with tab_edit:
                 except NotFoundError as e:
                     st.error(str(e))
                 except Exception as e:
-                    logger.exception(f"Unexpected error deleting product: sku={sku}")
+                    logger.exception(f"Unexpected error deleting product: id={selected_id}")
                     st.error("An unexpected error occurred. Please try again.")
+
+with tab_import:
+    st.write(
+        "Upload a CSV file with columns: `name`, `sku`, `description`, `category`, "
+        "`price`, `stock`, `weight_kg`."
+    )
+
+    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+
+    if uploaded_file is not None:
+        if st.button("Import", type="primary"):
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+                tmp.write(uploaded_file.getvalue())
+                tmp_path = tmp.name
+
+            try:
+                result = csv_import_service.import_from_csv(tmp_path)
+
+                st.session_state["flash"] = (
+                    f"Import complete: {result.imported} imported, "
+                    f"{result.skipped} skipped, out of {result.total_rows} total rows."
+                )
+
+                if result.errors:
+                    st.session_state["import_errors"] = result.errors
+                elif "import_errors" in st.session_state:
+                    del st.session_state["import_errors"]
+
+                st.rerun()
+            except ValidationError as e:
+                st.error(f"Import failed: {e}")
+            except Exception as e:
+                logger.exception(f"Unexpected error during CSV import: file={uploaded_file.name}")
+                st.error("An unexpected error occurred during import. Please try again.")
+            finally:
+                os.remove(tmp_path)
+
+    if "import_errors" in st.session_state:
+        header_col, close_col = st.columns([20, 1])
+        with header_col:
+            st.subheader(f"{len(st.session_state['import_errors'])} error(s) from last import")
+        with close_col:
+            if st.button("✕", key="dismiss_import_errors"):
+                del st.session_state["import_errors"]
+                st.rerun()
+
+        with st.expander("View details", expanded=True):
+            for error in st.session_state["import_errors"]:
+                st.write(f"- {error}")

@@ -33,7 +33,10 @@ class PurchaseService:
         payment_result = self.payment_gateway.process_payment(total)
 
         if not payment_result.success:
-            logger.warning(f"Payment declined: product_id={product_id}, total={total:.2f}")
+            logger.warning(
+                f"Payment declined: product_id={product_id}, total={total:.2f}, "
+                f"reason={payment_result.message}"
+            )
             raise PaymentDeclinedError(payment_result.message)
 
         updated = self.repository.update(product_id, {"stock": product.stock - quantity})

@@ -98,6 +98,23 @@ Using `st.toast()` for purchase/update/delete confirmations (via a `st.session_s
 **Resolution:**
 The resolution differs by page based on realistic usage risk:
 - **Shop page:** redesigned confirmation messages to be contextual per product instead of a single global flash. This sidesteps the bug entirely for the page where rapid consecutive actions are possible, and as a side benefit fixed a related visibility problem; a global message at the top of a long, scrolled page was easy to miss.
-- **Admin pages** (`admin_products.py`, `admin_import_csv.py`): kept `st.toast()`. Manual testing found the bug reproducible specifically when updating a product and then immediately deleting it via the adjacent "Update"/"Delete" buttons on the same "Edit / Delete" form, well within the toast's ~4-second window. Outside that specific adjacent-buttons case, normal pacing across other actions does not trigger it. Risk accepted: worst case is a missed confirmation message for the first of two rapid actions; both operations still complete correctly in the database regardless of what the toast displays — there is no data integrity impact.
+- **Admin (`admin_products.py`)**: kept `st.toast()`. This risk was narrowed further after Design Decision #14 moved Create and Update confirmations to a separate "pop" pattern — `st.toast()` on the Admin side now only fires for product deletion and CSV import (see Design Decision #16), two actions that don't naturally occur back to back within the toast's ~4-second window in normal use. Risk accepted: worst case is a missed confirmation message for one of two rapid actions; both operations still complete correctly in the database regardless of what the toast displays — there is no data integrity impact.
 
 **Known limitation, deferred:** a single, reliably auto-dismissing confirmation pattern usable everywhere (matching the original `st.toast()` intent without its reliability caveat) was not found within the timebox. Documented in `Architecture.md` (Design Decision #12) as a candidate future improvement.
+
+---
+
+## 7. Streamlit deprecation warning: `use_container_width`
+
+**Warning (console):**
+```
+Please replace `use_container_width` with `width`.
+`use_container_width` will be removed after 2025-12-31.
+For `use_container_width=True`, use `width='stretch'`.
+```
+
+**Cause:**
+The installed Streamlit version (1.63.0) deprecated the `use_container_width` boolean parameter (used on `st.button` and `st.dataframe`) in favor of a more general `width` parameter accepting `"stretch"` or `"content"`.
+
+**Fix:**
+Replaced all `use_container_width=True` occurrences with `width="stretch"` across the UI.

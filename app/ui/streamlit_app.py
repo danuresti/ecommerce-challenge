@@ -11,11 +11,10 @@ get_csv_import_service()
 get_purchase_service()
 
 admin_products = st.Page("pages/admin_products.py", title="Manage Products", icon="🔧")
-admin_import_csv = st.Page("pages/admin_import_csv.py", title="Import CSV", icon="📥")
 storefront_shop = st.Page("pages/storefront_shop.py", title="Shop", icon="🛍️")
 
 pg = st.navigation({
-    "Admin": [admin_products, admin_import_csv],
+    "Admin": [admin_products],
     "Shop": [storefront_shop],
 })
 
