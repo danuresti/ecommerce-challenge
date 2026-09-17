@@ -12,7 +12,7 @@ product_service = get_product_service()
 purchase_service = get_purchase_service()
 
 if "last_message" not in st.session_state:
-    st.session_state.last_message = None  # (product_id, type, text)
+    st.session_state.last_message = None
 
 
 def clear_last_message():
