@@ -190,6 +190,8 @@ Floating point numbers introduce rounding errors that are unacceptable for curre
 ### 4. `sku` as a unique constraint
 Assumed to be the real-world identifier for a product in a catalog, so it's enforced as unique at the database level. A surrogate `id` (auto-incrementing integer primary key) is kept separate from `sku` (a natural key) — this protects internal relationships (e.g., a future `Order` referencing a product) from breaking if a SKU format ever changes, which is common in real catalog systems.
 
+**A direct consequence worth stating explicitly:** deleted product IDs are never reused. If product `id=5` is deleted and a new product is created afterward, it receives a new, higher ID. This is standard and the expected behavior for an auto-incrementing surrogate key: reusing a deleted ID would risk any stale external reference to that ID.
+
 ### 5. Purchase flow as a simple conditional check (not a state machine)
 A state machine was considered for the purchase flow, since the domain has a natural parallel to state-driven design (familiar from automotive/embedded systems). However, the current purchase flow is a single-transaction, binary outcome (sufficient stock vs. insufficient stock) — not an entity that persists across multiple states over time. A state machine would be a better fit for an `Order` entity with a real lifecycle (e.g., `Created → PaymentPending → PaymentConfirmed → Failed`), but since the challenge explicitly fakes the payment step, that complexity was considered out of scope for this timebox.
 
